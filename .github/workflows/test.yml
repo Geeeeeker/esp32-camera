@@ -55,30 +55,22 @@ on:
           - HM0360
           - HM1055
       custom_pins:
-        description: 'Custom GPIO pins (format: KEY=VAL,KEY2=VAL2)'
+        description: 'Custom GPIO pins (KEY=VAL,KEY2=VAL2)'
         required: false
         type: string
         default: ''
-        # 示例：PIN_PWDN=-1,PIN_RESET=15,PIN_XCLK=10,PIN_SIOD=4,PIN_SIOC=5,PIN_D7=9,PIN_D6=8,PIN_D5=7,PIN_D4=6,PIN_D3=3,PIN_D2=2,PIN_VSYNC=42,PIN_HREF=41,PIN_PCLK=40
 
 jobs:
   build-examples:
     name: Build for ${{ matrix.idf_target }} on ${{ matrix.idf_ver }}
     runs-on: ubuntu-latest
-    
+
     strategy:
       fail-fast: false
       matrix:
-        # IDF 版本矩阵：手动触发时单值，自动触发时全量
         idf_ver: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.idf_ver) || '["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "release-v6.0", "latest"]') }}
-        
-        # 开发板矩阵：手动触发时单值，自动触发时全量
         idf_target: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.idf_target) || '["esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3"]') }}
-        
-        # 摄像头型号矩阵：手动触发时单值，自动触发时固定为 OV2640
         camera_model: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.camera_model) || '["OV2640"]') }}
-        
-        # 排除已知不兼容的组合（仅影响自动全量构建，手动触发时若选择此组合也会被跳过，符合预期）
         exclude:
           - idf_ver: "release-v5.1"
             idf_target: "esp32c2"
@@ -86,7 +78,7 @@ jobs:
             idf_target: "esp32c2"
 
     container: espressif/idf:${{ matrix.idf_ver }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -102,16 +94,15 @@ jobs:
         working-directory: examples/camera_example
         run: |
           . ${IDF_PATH}/export.sh
-          
-          # 设置严格编译警告
+
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
-          
-          # 启用指定摄像头型号的驱动支持
+
+          # 启用摄像头型号支持
           echo "CONFIG_${CAMERA_MODEL}_SUPPORT=y" >> sdkconfig.defaults
-          
-          # 如果提供了自定义引脚配置，则解析并写入
+
+          # 写入自定义引脚配置
           if [[ -n "$CUSTOM_PINS" ]]; then
             echo "Applying custom GPIO pins: $CUSTOM_PINS"
             IFS=',' read -ra PAIRS <<< "$CUSTOM_PINS"
@@ -121,6 +112,17 @@ jobs:
               echo "CONFIG_${key}=${val}" >> sdkconfig.defaults
             done
           fi
-          
-          # 执行构建
+
           idf.py build
+
+      # 🔥 新增步骤：上传构建产物（固件文件）
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.idf_target }}-${{ matrix.camera_model }}-${{ matrix.idf_ver }}
+          path: |
+            examples/camera_example/build/*.bin
+            examples/camera_example/build/bootloader/*.bin
+            examples/camera_example/build/partition_table/*.bin
+          if-no-files-found: error
+          retention-days: 7
