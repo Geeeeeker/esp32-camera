@@ -1,3 +1,13 @@
+填写表单：
+ESP-IDF Version：选择你要测试的版本。
+ESP32 Target Board：选择芯片型号。
+Camera Model：选择摄像头型号。
+Custom GPIO pins（可选）：按 KEY=VALUE,KEY2=VALUE2 格式输入引脚配置。例如：
+
+text
+PIN_PWDN=-1,PIN_RESET=15,PIN_XCLK=10,PIN_SIOD=4,PIN_SIOC=5,PIN_D7=9,PIN_D6=8,PIN_D5=7,PIN_D4=6,PIN_D3=3,PIN_D2=2,PIN_VSYNC=42,PIN_HREF=41,PIN_PCLK=40
+
+
 # ESP32 Camera Driver
 
 [![Build examples](https://github.com/espressif/esp32-camera/actions/workflows/build.yml/badge.svg)](https://github.com/espressif/esp32-camera/actions/workflows/build.yml) [![Component Registry](https://components.espressif.com/components/espressif/esp32-camera/badge.svg)](https://components.espressif.com/components/espressif/esp32-camera)
