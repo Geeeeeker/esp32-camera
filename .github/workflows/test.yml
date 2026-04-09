@@ -1,0 +1,98 @@
+name: Build examples
+
+on:
+  # 原有的自动触发规则：当推送到 master 分支或创建 Pull Request 时
+  push:
+    branches:
+    - master
+  pull_request:
+
+  # 新增的手动触发规则
+  workflow_dispatch:
+    inputs:
+      # 输入项 1: 选择开发板 (ESP32 芯片型号)
+      idf_target:
+        description: 'Select ESP32 Target Board'
+        required: true
+        type: choice
+        default: 'esp32'
+        options:
+          - esp32
+          - esp32s2
+          - esp32s3
+          - esp32c2
+          - esp32c3
+      # 输入项 2: 选择摄像头型号
+      camera_model:
+        description: 'Select Camera Model'
+        required: true
+        type: choice
+        default: 'OV2640'
+        options:
+          - OV2640
+          - OV3660
+          - OV5640
+          - OV7670
+          - OV7725
+          - NT99141
+          - GC032A
+          - GC0308
+          - GC2145
+          - BF3005
+          - BF20A6
+          - SC101IOT
+          - SC030IOT
+          - SC031GS
+          - HM0360
+          - HM1055
+
+jobs:
+  build-examples:
+    name: Build for ${{ matrix.idf_target }} on ${{ matrix.idf_ver }}
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        # IDF 版本列表保持不变
+        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "release-v6.0", "latest"]
+        
+        # 根据触发事件动态生成 "开发板" 和 "摄像头" 的组合
+        idf_target: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.idf_target) || '["esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3"]') }}
+        camera_model: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.camera_model) || '["OV2640"]') }}
+        
+        # 排除某些不兼容的版本与芯片组合 (可根据实际情况调整)
+        exclude:
+          # 示例：ESP32-C2 不支持较老的 IDF 版本
+          - idf_ver: "release-v5.1"
+            idf_target: "esp32c2"
+          - idf_ver: "release-v5.2"
+            idf_target: "esp32c2"
+
+    container: espressif/idf:${{ matrix.idf_ver }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Build with ESP-IDF
+        env:
+          IDF_TARGET: ${{ matrix.idf_target }}
+          CAMERA_MODEL: ${{ matrix.camera_model }}
+        shell: bash
+        working-directory: examples/camera_example
+        run: |
+          . ${IDF_PATH}/export.sh
+          
+          # 设置严格的编译警告标志
+          export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
+          export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
+          export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
+          
+          # 将选中的摄像头型号写入配置
+          echo "CONFIG_${CAMERA_MODEL}_SUPPORT=y" >> sdkconfig.defaults
+          
+          # 执行构建
+          idf.py build
