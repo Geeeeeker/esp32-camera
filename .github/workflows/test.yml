@@ -8,9 +8,8 @@ on:
 
   workflow_dispatch:
     inputs:
-      # 新增：选择 IDF 版本
       idf_ver:
-        description: 'Select ESP-IDF Version'
+        description: 'ESP-IDF Version'
         required: true
         type: choice
         default: 'latest'
@@ -22,9 +21,8 @@ on:
           - release-v5.5
           - release-v6.0
           - latest
-      # 选择开发板型号
       idf_target:
-        description: 'Select ESP32 Target Board'
+        description: 'ESP32 Target Board'
         required: true
         type: choice
         default: 'esp32'
@@ -34,9 +32,8 @@ on:
           - esp32s3
           - esp32c2
           - esp32c3
-      # 选择摄像头型号
       camera_model:
-        description: 'Select Camera Model'
+        description: 'Camera Model'
         required: true
         type: choice
         default: 'OV2640'
@@ -57,6 +54,12 @@ on:
           - SC031GS
           - HM0360
           - HM1055
+      custom_pins:
+        description: 'Custom GPIO pins (format: KEY=VAL,KEY2=VAL2)'
+        required: false
+        type: string
+        default: ''
+        # 示例：PIN_PWDN=-1,PIN_RESET=15,PIN_XCLK=10,PIN_SIOD=4,PIN_SIOC=5,PIN_D7=9,PIN_D6=8,PIN_D5=7,PIN_D4=6,PIN_D3=3,PIN_D2=2,PIN_VSYNC=42,PIN_HREF=41,PIN_PCLK=40
 
 jobs:
   build-examples:
@@ -66,21 +69,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # IDF 版本：手动触发时使用用户选择的值，自动触发时使用全矩阵
+        # IDF 版本矩阵
         idf_ver: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.idf_ver) || '["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "release-v6.0", "latest"]') }}
         
-        # 开发板型号：手动触发时使用用户选择的值，自动触发时使用全矩阵
+        # 开发板矩阵
         idf_target: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.idf_target) || '["esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3"]') }}
         
-        # 摄像头型号：手动触发时使用用户选择的值，自动触发时固定为 OV2640
+        # 摄像头型号矩阵（手动触发时单值，自动触发时固定为 OV2640）
         camera_model: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.camera_model) || '["OV2640"]') }}
         
-        # 排除不兼容的组合（仅在自动全量构建时生效）
+        # 仅当自动触发时应用排除规则
         exclude:
           - idf_ver: "release-v5.1"
             idf_target: "esp32c2"
+            # 使用条件判断：只在非手动触发时排除
+            is_manual: false
           - idf_ver: "release-v5.2"
             idf_target: "esp32c2"
+            is_manual: false
 
     container: espressif/idf:${{ matrix.idf_ver }}
     
@@ -94,15 +100,30 @@ jobs:
         env:
           IDF_TARGET: ${{ matrix.idf_target }}
           CAMERA_MODEL: ${{ matrix.camera_model }}
+          CUSTOM_PINS: ${{ github.event.inputs.custom_pins }}
         shell: bash
         working-directory: examples/camera_example
         run: |
           . ${IDF_PATH}/export.sh
           
+          # 严格的编译警告
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
           
+          # 写入摄像头型号宏 (根据 esp32-camera 官方 Kconfig 命名)
           echo "CONFIG_${CAMERA_MODEL}_SUPPORT=y" >> sdkconfig.defaults
           
+          # 如果用户提供了自定义引脚，则解析并写入
+          if [[ -n "$CUSTOM_PINS" ]]; then
+            echo "Applying custom GPIO pins: $CUSTOM_PINS"
+            IFS=',' read -ra PAIRS <<< "$CUSTOM_PINS"
+            for pair in "${PAIRS[@]}"; do
+              key=$(echo "$pair" | cut -d'=' -f1)
+              val=$(echo "$pair" | cut -d'=' -f2)
+              echo "CONFIG_${key}=${val}" >> sdkconfig.defaults
+            done
+          fi
+          
+          # 开始构建
           idf.py build
