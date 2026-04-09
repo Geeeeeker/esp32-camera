@@ -69,24 +69,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # IDF 版本矩阵
+        # IDF 版本矩阵：手动触发时单值，自动触发时全量
         idf_ver: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.idf_ver) || '["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "release-v6.0", "latest"]') }}
         
-        # 开发板矩阵
+        # 开发板矩阵：手动触发时单值，自动触发时全量
         idf_target: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.idf_target) || '["esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3"]') }}
         
-        # 摄像头型号矩阵（手动触发时单值，自动触发时固定为 OV2640）
+        # 摄像头型号矩阵：手动触发时单值，自动触发时固定为 OV2640
         camera_model: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.camera_model) || '["OV2640"]') }}
         
-        # 仅当自动触发时应用排除规则
+        # 排除已知不兼容的组合（仅影响自动全量构建，手动触发时若选择此组合也会被跳过，符合预期）
         exclude:
           - idf_ver: "release-v5.1"
             idf_target: "esp32c2"
-            # 使用条件判断：只在非手动触发时排除
-            is_manual: false
           - idf_ver: "release-v5.2"
             idf_target: "esp32c2"
-            is_manual: false
 
     container: espressif/idf:${{ matrix.idf_ver }}
     
@@ -106,15 +103,15 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
           
-          # 严格的编译警告
+          # 设置严格编译警告
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
           
-          # 写入摄像头型号宏 (根据 esp32-camera 官方 Kconfig 命名)
+          # 启用指定摄像头型号的驱动支持
           echo "CONFIG_${CAMERA_MODEL}_SUPPORT=y" >> sdkconfig.defaults
           
-          # 如果用户提供了自定义引脚，则解析并写入
+          # 如果提供了自定义引脚配置，则解析并写入
           if [[ -n "$CUSTOM_PINS" ]]; then
             echo "Applying custom GPIO pins: $CUSTOM_PINS"
             IFS=',' read -ra PAIRS <<< "$CUSTOM_PINS"
@@ -125,5 +122,5 @@ jobs:
             done
           fi
           
-          # 开始构建
+          # 执行构建
           idf.py build
